@@ -111,11 +111,17 @@ class Frontend:
             t_start = 0
             now = f'{strftime("%Y-%m-%d %H:%M:%S", gmtime())} - Loop BA'
             msg = f'\n\n {now} : [{t_start}, {cur_t}]; Current Keyframe is {cur_t}, last is {self.last_loop_t}.'
+            # on commence au de la de frontend window les loop avant 25 KF sont pas pertinentes
+            # pour gagner du temps avant de massacrer les performances
             if self.enable_loop and cur_t > self.frontend_window:
 
+                # on recupere les KF et edges
                 n_kf, n_edge = self.loop_closing.loop_ba(t_start=0, t_end=cur_t, steps=self.iters2, motion_only=False, local_graph=self.graph)
 
+                # on ne montre que les kf pour info
                 print(msg + f' {n_kf} KFs, last KF is {self.last_loop_t}! \n')
+
+                # on garde en memoire le timestamp de la derniere loop
                 self.last_loop_t = cur_t
 
             else:

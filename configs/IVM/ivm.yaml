@@ -27,13 +27,15 @@ tracking:
   #   bound_enlarge_scale: 1.20
   frontend:
     enable_loop: True
-    keyframe_thresh: 4.0  # remove keyframe if avg flow < 4.0 pixels
-    thresh: 16.0  # only consider edge with avg flow < 16.0 pixels
+    #keyframe_thresh: 4.0  # remove keyframe if avg flow < 4.0 pixels
+    keyframe_thresh: 10.0  # remove keyframe if avg flow < 4.0 pixels
+    #thresh: 16.0  # only consider edge with avg flow < 16.0 pixels
+    thresh: 20.0  # only consider edge with avg flow < 16.0 pixels
     window: 25  # local ba window size
     #radius: 1
     radius: 2
     nms: 1
-    #max_factors: 75  # num of edges within local ba
+    #max_factors: 60  # num of edges within local ba
     max_factors: 48  # num of edges within local ba
   backend:
     thresh: 25.0  # only consider edge with avg flow < 25.0 pixels

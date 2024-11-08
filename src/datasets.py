@@ -737,24 +737,24 @@ class IVM(BaseDataset):
         depth_data = None
 
 
-        # ----------------- depth
-        depth_path = self.depth_paths[index]
-        depth = - np.load(depth_path)/1000
-        print("depth values : ")
-        print("depth min : ",np.min(depth))
-        print("depth max : ",np.max(depth))
-        print("depth shape : ",depth.shape)
+        # # ----------------- depth
+        # depth_path = self.depth_paths[index]
+        # depth = - np.load(depth_path)/1000
+        # print("depth values : ")
+        # print("depth min : ",np.min(depth))
+        # print("depth max : ",np.max(depth))
+        # print("depth shape : ",depth.shape)
+        #
+        # depth = torch.as_tensor(depth)
+        # #depth = F.interpolate(depth[None,None], image_size).squeeze()
+        # 
+        # image_size = [320, 512]
+        # depth = F.interpolate(depth[None,None], image_size, mode='nearest').squeeze()
+        #
+        # h1 = image_size[0]
+        # w1 = image_size[1]
+        # depth_data = depth[:h1-h1%8, :w1-w1%8]
 
-        depth = torch.as_tensor(depth)
-        #depth = F.interpolate(depth[None,None], image_size).squeeze()
-        
-        image_size = [320, 512]
-        depth = F.interpolate(depth[None,None], image_size, mode='nearest').squeeze()
-
-        h1 = image_size[0]
-        w1 = image_size[1]
-        depth_data = depth[:h1-h1%8, :w1-w1%8]
-        #depth_data = depth
 
         intrinsic = torch.as_tensor([self.fx, self.fy, self.cx, self.cy]).float()
         intrinsic[0] *= W_out_with_edge / self.W
