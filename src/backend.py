@@ -115,7 +115,8 @@ class Backend:
                                 sub_es += [(si, sj)]
                                 #es += sub_es
                 if num_loop > int(((n_neighboring * 2 + 1) ** 2) * 0.5):
-                    import pdb; pdb.set_trace()
+                    #import pdb; pdb.set_trace()
+                    print("*" * 100)
                     es += sub_es
             else:
                 es += [(i, j), ]

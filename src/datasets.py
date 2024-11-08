@@ -737,7 +737,7 @@ class IVM(BaseDataset):
         depth_data = None
 
 
-        # # ----------------- depth
+        # ----------------- depth
         # depth_path = self.depth_paths[index]
         # depth = - np.load(depth_path)/1000
         # print("depth values : ")
@@ -747,7 +747,7 @@ class IVM(BaseDataset):
         #
         # depth = torch.as_tensor(depth)
         # #depth = F.interpolate(depth[None,None], image_size).squeeze()
-        # 
+        #
         # image_size = [320, 512]
         # depth = F.interpolate(depth[None,None], image_size, mode='nearest').squeeze()
         #
