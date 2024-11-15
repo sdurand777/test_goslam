@@ -21,6 +21,7 @@ class Backend:
         self.backend_loop_radius = cfg['tracking']['backend']['loop_radius']
         self.backend_loop_nms = cfg['tracking']['backend']['loop_nms']
 
+    # radius distance temporel
     @torch.no_grad()
     def ba(self, t_start, t_end, steps, graph, nms, radius, thresh, max_factors, t_start_loop=None, loop=False, motion_only=False):
         """ main update """
@@ -86,8 +87,6 @@ class Backend:
         ix = ix.tolist()
         
         flag = False
-        if len(ix) > 0:
-            flag = True
 
 
         n_neighboring = 1
@@ -118,6 +117,7 @@ class Backend:
                     #import pdb; pdb.set_trace()
                     print("*" * 100)
                     es += sub_es
+                    flag = True
             else:
                 es += [(i, j), ]
                 es += [(j, i), ]
@@ -130,15 +130,19 @@ class Backend:
             return 0
 
 
-        # if flag:
-        #     import pdb; pdb.set_trace()
-
 
         ii, jj = torch.tensor(es, device=self.device).unbind(dim=-1)
 
         graph.add_factors(ii, jj, remove=True)
 
         edge_num = len(graph.ii)
+
+        if flag:
+            #import pdb; pdb.set_trace()
+            print("edge_num : ", edge_num)
+
+        print("len(graph.ii ", len(graph.ii))
+        print("graph.ii ", graph.ii)
 
         graph.update_lowmem(
             t0=t_start_loop+1,  # fix the start point to avoid drift, be sure to use t_start_loop rather than t_start here.
@@ -185,13 +189,17 @@ class Backend:
         #import pdb; pdb.set_trace()
 
         # on recupere les infos de la config
+        # radius distance temporelle
         radius = self.backend_loop_radius
+        # fenetre pour le graph
         window = self.backend_loop_window
 
         # max factors
         max_factors = 8 * window
 
+        # eliminer les fausse loop
         nms = self.backend_loop_nms
+        # flot optique pour considerer une loop
         thresh = self.backend_loop_thresh
         t_start_loop = max(0, t_end - window)
 

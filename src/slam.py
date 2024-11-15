@@ -15,7 +15,7 @@ from .backend import Backend
 from .depth_video import DepthVideo
 from .motion_filter import MotionFilter
 from .multiview_filter import MultiviewFilter
-from .visualization import droid_visualization
+from .visualization import droid_visualization, droid_visualization_dso
 from .trajectory_filler import PoseTrajectoryFiller
 from .mapping import Mapper
 from .render import Renderer
@@ -23,6 +23,7 @@ from .mesher import Mesher
 from .InstantNeuS import InstantNeuS
 
 
+import time
 
 
 # tracker et updater
@@ -44,8 +45,44 @@ class Tracker(nn.Module):
         # frontend process
         self.frontend = Frontend(self.net, self.video, self.args, self.cfg)
 
+        # image pour le viewer
+        ht = cfg['cam']['H_out']
+        self.ht = ht
+        wd = cfg['cam']['W_out']
+        self.wd = wd
+
+        buffer = cfg['tracking']['buffer']
+
+        self.image_ = torch.zeros(ht, wd, 3, dtype=torch.uint8, device="cpu") 
+
+        self.poses_ =  torch.zeros(buffer, 7, dtype=torch.float, device="cuda")
+        # initialize poses to identity matrix
+        self.poses_[:,6] = 1.0
+        self.points_ = torch.zeros(1000000, 3, dtype=torch.float, device="cuda")
+        self.colors_ = torch.zeros(1000, 1000, 3, dtype=torch.uint8, device="cuda")
+        self.intrinsics_ = torch.zeros(1, 4, dtype=torch.float32, device="cuda")
+
+        from viewerdpvo import Viewer
+        
+        self.viewer = Viewer(
+            self.image_,
+            self.video.poses,
+            self.video.points_,
+            self.video.colors_,
+            self.video.intrinsics)
+
+
     def forward(self, timestamp, image, depth, intrinsic, gt_pose=None):
         with torch.no_grad():
+
+            img = image[0]
+            self.image_ = (img * 255).cpu().permute(1,2,0).to(torch.uint8) 
+
+            #import pdb; pdb.set_trace()
+
+            #print("envoi image au visualisateur")
+            self.viewer.update_image(self.image_)
+
 
             ### check there is enough motion
             self.motion_filter.track(timestamp, image, depth, intrinsic, gt_pose=gt_pose)
@@ -251,27 +288,56 @@ class SLAM:
 
 
 
-    # tracking part
+    # # tracking part
+    # def tracking(self, rank, stream):
+    #     print('Tracking Triggered!')
+    #     self.all_trigered += 1
+    #     while(self.all_trigered < self.num_running_thread):
+    #         pass
+    #     # access to the stream data
+    #     for (timestamp, image, depth, intrinsic, gt_pose) in tqdm(stream):
+    #         self.tracker(timestamp, image, depth, intrinsic, gt_pose)
+    #
+    #     self.tracking_finished += 1
+    #     print('Tracking Done!')
+
+
     def tracking(self, rank, stream):
         print('Tracking Triggered!')
         self.all_trigered += 1
         while(self.all_trigered < self.num_running_thread):
             pass
-        # access to the stream data
+        
+        # Variables pour le suivi
+        frame_count = 0
+        start_time = time.time()
+        last_time = start_time  # Temps du dernier affichage
+        display_interval = 2  # Affiche les stats toutes les 5 secondes
+        
+        # Accès aux données du flux
         for (timestamp, image, depth, intrinsic, gt_pose) in tqdm(stream):
-            # if self.mode != 'rgbd':
-            #     depth = None
-            #import pdb; pdb.set_trace()
             self.tracker(timestamp, image, depth, intrinsic, gt_pose)
-
-            # # predict mesh every 50 frames for video making
-            # if timestamp % 50 == 0 and timestamp > 0 and self.make_video:
-            #     self.hang_on[:] = 1
-            # while(self.hang_on > 0):
-            #     sleep(1.0)
-
+            frame_count += 1
+            
+            # Temps actuel
+            current_time = time.time()
+            
+            # Afficher les stats périodiques
+            if current_time - last_time > display_interval:
+                elapsed = current_time - start_time
+                fps = frame_count / elapsed
+                print(f"[INFO] Processed {frame_count} frames in {elapsed:.2f} seconds (FPS: {fps:.2f})")
+                last_time = current_time  # Réinitialiser le temps de dernier affichage
+        
+        # Fin du tracking
+        total_time = time.time() - start_time
+        fps = frame_count / total_time if total_time > 0 else 0
+        print(f"Tracking Done! Processed {frame_count} frames in {total_time:.2f} seconds.")
+        print(f"FPS: {fps:.2f}")
+        
         self.tracking_finished += 1
-        print('Tracking Done!')
+        print("Tracking Done !")
+
 
 
 
@@ -346,7 +412,8 @@ class SLAM:
         while((self.tracking_finished < 1 or self.optimizing_finished < 1) and (not dont_run)):
             # version go slam merdique
             #droid_visualization(self.video, device=self.device, save_root=self.output)
-            droid_visualization(self.video, device=self.device)
+            #droid_visualization(self.video, device=self.device)
+            droid_visualization_dso(self.video, device=self.device)
 
         self.visualizing_finished += 1
         print('Visualization Done!')
@@ -439,39 +506,43 @@ class SLAM:
 
 
     def run(self, stream):
-        #self.tracking(0, stream)
+        self.tracking(0, stream)
 
-
-        dont_run = True
-        processes = [
-
-            # tracking module
-            mp.Process(target=self.tracking, args=(0, stream)),
-            
-            # optimizer
-            #mp.Process(target=self.optimizing, args=(1, not dont_run)),
-
-
-            ##### process for NERF merdique
-
-            # multi view
-            #mp.Process(target=self.multiview_filtering, args=(2, dont_run if self.only_tracking else (not dont_run))),
-
-            # mappinf
-            #mp.Process(target=self.mapping, args=(3, dont_run if self.only_tracking else (not dont_run))),
-
-            # meshing
-            #mp.Process(target=self.meshing, args=(4, dont_run)),  # only generate mesh at the very end
-
-            # mp.Process(target=self.meshing, args=(4, dont_run if self.only_tracking else (not dont_run))),
-            mp.Process(target=self.visualizing, args=(5,not dont_run)),
-        ]
-
-        self.num_running_thread[0] += len(processes)
-        for p in processes:
-            p.start()
-
-        for p in processes:
-            p.join()
+        # dont_run = True
+        # processes = [
+        #
+        #     # tracking module
+        #     mp.Process(target=self.tracking, args=(0, stream)),
+        #     
+        #     # optimizer
+        #     #mp.Process(target=self.optimizing, args=(1, not dont_run)),
+        #
+        #
+        #     ##### process for NERF merdique
+        #
+        #     # multi view
+        #     #mp.Process(target=self.multiview_filtering, args=(2, dont_run if self.only_tracking else (not dont_run))),
+        #
+        #     # mappinf
+        #     #mp.Process(target=self.mapping, args=(3, dont_run if self.only_tracking else (not dont_run))),
+        #
+        #     # meshing
+        #     #mp.Process(target=self.meshing, args=(4, dont_run)),  # only generate mesh at the very end
+        #
+        #     # mp.Process(target=self.meshing, args=(4, dont_run if self.only_tracking else (not dont_run))),
+        #     mp.Process(target=self.visualizing, args=(5,not dont_run)),
+        #
+        #     # # nouveau rendu
+        #     # mp.Process(target=droid_inference, args=(self.video, self.data_queue, self.stop_event, self.device)),
+        #     # mp.Process(target=droid_rendering, args=(self.data_queue, self.stop_event))
+        #
+        # ]
+        #
+        # self.num_running_thread[0] += len(processes)
+        # for p in processes:
+        #     p.start()
+        #
+        # for p in processes:
+        #     p.join()
 
 

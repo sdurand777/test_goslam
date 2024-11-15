@@ -8,6 +8,7 @@ from torch.multiprocessing import Value
 from .droid_net import cvx_upsample
 from .geom import projective_ops as pops
 
+from lietorch import SE3
 
 class DepthVideo:
     def __init__(self, cfg, args):
@@ -40,13 +41,21 @@ class DepthVideo:
         self.images = torch.zeros(buffer, 3, ht, wd, device=device, dtype=torch.float)
         self.dirty = torch.zeros(buffer, device=device, dtype=torch.bool).share_memory_()
         self.red = torch.zeros(buffer, device=device, dtype=torch.bool).share_memory_()
-        self.poses = torch.zeros(buffer, 7, device=device, dtype=torch.float).share_memory_()  # w2c quaterion
+
         self.poses_gt = torch.zeros(buffer, 4, 4, device=device, dtype=torch.float).share_memory_()  # c2w matrix
         self.disps = torch.ones(buffer, ht//s, wd//s, device=device, dtype=torch.float).share_memory_()
         self.disps_sens = torch.zeros(buffer, ht//s, wd//s, device=device, dtype=torch.float).share_memory_()
         self.depths_gt = torch.zeros(buffer, ht, wd, device=device, dtype=torch.float).share_memory_()
         self.disps_up = torch.zeros(buffer, ht, wd, device=device, dtype=torch.float).share_memory_()
+
+
+        # utilities for visualization
+        self.poses = torch.zeros(buffer, 7, device=device, dtype=torch.float).share_memory_()  # w2c quaterion
         self.intrinsics = torch.zeros(buffer, 4, device=device, dtype=torch.float).share_memory_()
+        self.points_ = torch.zeros(1000000, 3, dtype=torch.float, device="cuda")
+        self.colors_ = torch.zeros(1000000, 3, dtype=torch.uint8, device="cuda")
+        self.valid_count = 0  # Compteur des points valides
+
 
         ### feature attributes ###
         self.fmaps = torch.zeros(buffer, c, 128, ht//s, wd//s, dtype=torch.half, device=device).share_memory_()
@@ -71,6 +80,9 @@ class DepthVideo:
         self.pose_compensate[:] = torch.tensor([0, 0, 0, 0, 0, 0, 1], dtype=torch.float, device=device)
 
 
+
+
+
     def get_lock(self):
         return self.counter.get_lock()
 
@@ -87,9 +99,9 @@ class DepthVideo:
             self.counter.value = index.max().item() + 1
 
         self.timestamp[index] = item[0]
+
         self.images[index] = item[1]
-
-
+            
         if item[2] is not None:
             self.poses[index] = item[2]
 
@@ -276,4 +288,91 @@ class DepthVideo:
 
 
             self.disps.clamp_(min=0.001)
+            
+            
+            # convertir les indices dirty de bool  en indices 0 et 1 
+            dirty_index, = torch.where(self.dirty)
+    
+            # si on aucun indicex modifies on arrete
+            if len(dirty_index) == 0:
+                return
+
+            # on remet les flag en false avant la prochaine modif
+            self.dirty[dirty_index] = False
+
+            # on recupere les images modifies
+            images = torch.index_select(self.images, dim=0, index=dirty_index)
+            # on reshape et resize pour save de la ressource
+            images = images.cpu()[:, :, 3::8, 3::8].permute(0, 2, 3, 1)
+
+            # on recupere  instrinsics
+            intrinsic = self.intrinsics[0]
+
+            # on recupere les poses et les disparites aussi des indices
+            poses = torch.index_select(self.poses, dim=0, index=dirty_index)
+            disps = torch.index_select(self.disps, dim=0, index=dirty_index)
+            Ps = SE3(poses).inv().matrix().cpu().numpy()
+
+            # on recupere les points associes
+            points = droid_backends.iproj(SE3(poses).inv().data, disps, intrinsic).cpu()
+
+            # filter de seuillage des points
+            filter_thresh = 0.5
+            thresh = filter_thresh * torch.ones_like(disps.mean(dim=[1, 2]))
+
+            # filter sur la depth
+            count = droid_backends.depth_filter(
+                self.poses, self.disps, intrinsic, dirty_index, thresh
+            )
+
+            # filter pour trier
+            count = count.cpu()
+            disps = disps.cpu()
+            masks = ((count >= 2) & (disps > 0.5 * disps.mean(dim=[1, 2], keepdim=True)))
+
+# Listes pour collecter tous les points et couleurs
+            all_points = []
+            all_colors = []
+
+# Parcours des keyframes
+            for i in range(len(dirty_index)):
+                mask = masks[i].reshape(-1)
+
+                # Récupérer les points et couleurs valides
+                pts = points[i].reshape(-1, 3)[mask]
+                clr = images[i].reshape(-1, 3)[mask]
+
+                # Ajouter les points et couleurs aux listes
+                all_points.append(pts)
+                all_colors.append(clr)
+
+# Concaténation de tous les points et couleurs après la boucle
+            if all_points:
+                all_points = torch.cat(all_points, dim=0)
+                all_colors = torch.cat(all_colors, dim=0)
+
+                all_colors_vis = (all_colors*255).to(torch.uint8)
+
+                num_points = all_points.shape[0]
+                # Mettre à jour `self.points_` et `self.colors_`
+                
+                #import pdb; pdb.set_trace()
+
+                self.points_[:num_points] = all_points
+                self.colors_[:num_points] = all_colors_vis
+
+            print(f'\n\n Visualization: totally {masks.sum()} valid points found among {len(dirty_index)} keyframes.\n')
+
+            # Libération explicite de la mémoire GPU pour éviter l'accumulation
+            del points, images
+            torch.cuda.empty_cache()
+
+            #import pdb; pdb.set_trace()
+
+
+
+
+
+
+
 

@@ -26,7 +26,7 @@ tracking:
   #   kernel_size: inf
   #   bound_enlarge_scale: 1.20
   frontend:
-    enable_loop: False
+    enable_loop: True
     #keyframe_thresh: 4.0  # remove keyframe if avg flow < 4.0 pixels
     keyframe_thresh: 10.0  # remove keyframe if avg flow < 4.0 pixels
     #thresh: 16.0  # only consider edge with avg flow < 16.0 pixels
@@ -42,10 +42,14 @@ tracking:
     radius: 1
     nms: 5
     # used for loop detection
-    loop_window: 25
-    loop_thresh: 25.0  # only consider edge with avg flow < 50.0 pixels
+    #loop_window: 25
+    loop_window: 10
+    #loop_thresh: 25.0  # only consider edge with avg flow < 50.0 pixels
+    loop_thresh: 25  # only consider edge with avg flow < 50.0 pixels
+    #loop_radius: 1
     loop_radius: 1
-    loop_nms: 12
+    #loop_nms: 12
+    loop_nms: 5
 
 
 cam:  #NOTE: intrinsic is different per scene in TUM
